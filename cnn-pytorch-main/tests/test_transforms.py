@@ -184,11 +184,22 @@ def test_transform_preserves_dimensions():
 def test_transform_real_disease_image():
     """Test transformation of a real bacterial leaf blight image."""
     import os
+    from pathlib import Path
     
     transformer = ImageTransformer(target_size=(224, 224))
     
-    # Load the real image
-    image_path = "data/rice_leaf_diseases/Bacterial leaf blight/DSC_0365.JPG"
+    # Load the real image from the dataset
+    base_dir = Path(__file__).parent.parent
+    image_path = base_dir / "datasets" / "rice_leaf_subset" / "train" / "Bacterialblight"
+    
+    # Find the first available image
+    if image_path.exists():
+        image_files = list(image_path.glob("*.jpg")) + list(image_path.glob("*.JPG"))
+        if not image_files:
+            pytest.skip("No test images available in dataset")
+        image_path = str(image_files[0])
+    else:
+        pytest.skip("Dataset directory not found")
     
     # Check if file exists
     assert os.path.exists(image_path), f"Image file not found: {image_path}"

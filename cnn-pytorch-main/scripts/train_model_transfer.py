@@ -1,12 +1,7 @@
 """
-Training script for the Crop Disease Classifier.
+Transfer Learning Training script for the Crop Disease Classifier.
 
-This script trains the CNN model on the rice leaf diseases dataset with:
-- Train/validation split
-- Data augmentation
-- Learning rate scheduling
-- Model checkpointing
-- Training metrics visualization
+This script uses a pre-trained ResNet18 model for better accuracy on small datasets.
 """
 
 import sys
@@ -19,39 +14,31 @@ from datetime import datetime
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import matplotlib.pyplot as plt
+import torchvision.models as models
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.model import CropDiseaseClassifier
 from src.transforms import ImageTransformer
 
 
 class RiceLeafDataset(Dataset):
     """Dataset class for rice leaf disease images."""
     
-    def __init__(self, root_dir, transform=None, selected_classes=None):
+    def __init__(self, root_dir, transform=None):
         """
         Args:
             root_dir (str): Directory with disease class subdirectories
             transform (callable, optional): Optional transform to be applied on images
-            selected_classes (list, optional): List of specific class names to include
         """
         self.root_dir = Path(root_dir)
         self.transform = transform
         
         # Get class names from subdirectories
-        all_classes = sorted([d.name for d in self.root_dir.iterdir() if d.is_dir()])
-        
-        # Filter to selected classes if specified
-        if selected_classes:
-            self.classes = [cls for cls in all_classes if cls in selected_classes]
-        else:
-            self.classes = all_classes
-            
+        self.classes = sorted([d.name for d in self.root_dir.iterdir() if d.is_dir()])
         self.class_to_idx = {cls_name: idx for idx, cls_name in enumerate(self.classes)}
         
         # Collect all image paths and labels
@@ -59,20 +46,21 @@ class RiceLeafDataset(Dataset):
         for class_name in self.classes:
             class_dir = self.root_dir / class_name
             for img_path in class_dir.glob('*.jpg'):
-                self.samples.append((img_path, self.class_to_idx[class_name]))
+                self.samples.append((str(img_path), self.class_to_idx[class_name]))
             for img_path in class_dir.glob('*.JPG'):
-                self.samples.append((img_path, self.class_to_idx[class_name]))
+                self.samples.append((str(img_path), self.class_to_idx[class_name]))
+            for img_path in class_dir.glob('*.jpeg'):
+                self.samples.append((str(img_path), self.class_to_idx[class_name]))
+            for img_path in class_dir.glob('*.png'):
+                self.samples.append((str(img_path), self.class_to_idx[class_name]))
     
     def __len__(self):
         return len(self.samples)
     
     def __getitem__(self, idx):
         img_path, label = self.samples[idx]
-        
-        # Load image
         image = Image.open(img_path).convert('RGB')
         
-        # Apply transforms
         if self.transform:
             image = self.transform(image)
         
@@ -80,16 +68,12 @@ class RiceLeafDataset(Dataset):
 
 
 def get_image_transformer(config):
-    """Get ImageTransformer instance from config."""
-    
-    input_size = tuple(config['model']['input_size'])
-    mean = config['preprocessing']['mean']
-    std = config['preprocessing']['std']
-    
+    """Get image transformer from config."""
+    img_size = config.get('img_size', 224)
     return ImageTransformer(
-        target_size=input_size,
-        mean=mean,
-        std=std
+        target_size=(img_size, img_size),
+        mean=config.get('mean', [0.485, 0.456, 0.406]),
+        std=config.get('std', [0.229, 0.224, 0.225])
     )
 
 
@@ -155,8 +139,8 @@ def validate(model, dataloader, criterion, device):
     return epoch_loss, epoch_acc
 
 
-def plot_training_history(history, save_path):
-    """Plot and save training history."""
+def save_training_plot(history, save_path):
+    """Save training history plots."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
     
     # Plot loss
@@ -183,7 +167,7 @@ def plot_training_history(history, save_path):
 
 
 def train_model():
-    """Main training function."""
+    """Main training function with transfer learning."""
     
     # Load configuration
     base_dir = Path(__file__).parent.parent
@@ -193,17 +177,13 @@ def train_model():
         config = json.load(f)
     
     print("=" * 60)
-    print("Crop Disease Classifier - Training")
+    print("Crop Disease Classifier - Transfer Learning Training")
     print("=" * 60)
     
-    # Training hyperparameters - Optimized for best accuracy
-    BATCH_SIZE = 4  # Small batch for better gradient updates
-    NUM_EPOCHS = 30  # Training for 30 epochs as requested
-    LEARNING_RATE = 0.001  # Higher learning rate for faster learning
-    VAL_SPLIT = 0.2
-    
-    # Select 3 rice leaf disease classes for training
-    SELECTED_CLASSES = ['Bacterialblight', 'Blast', 'Brownspot']
+    # Training hyperparameters - Optimized for small dataset
+    BATCH_SIZE = 16
+    NUM_EPOCHS = 30
+    LEARNING_RATE = 0.001
     
     # Device configuration
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -222,27 +202,20 @@ def train_model():
     val_transform = image_transformer.get_inference_transforms()
     
     # Create train and validation datasets
-    train_dataset_full = RiceLeafDataset(dataset_path, transform=train_transform)
-    val_dataset_full = RiceLeafDataset(val_dataset_path, transform=val_transform)
+    train_dataset = RiceLeafDataset(dataset_path, transform=train_transform)
+    val_dataset = RiceLeafDataset(val_dataset_path, transform=val_transform)
     
-    # Use train dataset for class information
-    full_dataset = train_dataset_full
-    
-    print(f"Training samples: {len(train_dataset_full)}")
-    print(f"Validation samples: {len(val_dataset_full)}")
-    print(f"Classes: {full_dataset.classes}")
-    print(f"Number of classes: {len(full_dataset.classes)}")
-    
-    # Use the prepared datasets directly (no need for random split)
-    train_dataset = train_dataset_full
-    val_dataset = val_dataset_full
+    print(f"Training samples: {len(train_dataset)}")
+    print(f"Validation samples: {len(val_dataset)}")
+    print(f"Classes: {train_dataset.classes}")
+    print(f"Number of classes: {len(train_dataset.classes)}")
     
     # Create data loaders
     train_loader = DataLoader(
         train_dataset,
         batch_size=BATCH_SIZE,
         shuffle=True,
-        num_workers=0,  # Avoid multiprocessing issues
+        num_workers=0,
         pin_memory=False
     )
     
@@ -250,24 +223,41 @@ def train_model():
         val_dataset,
         batch_size=BATCH_SIZE,
         shuffle=False,
-        num_workers=0,  # Avoid multiprocessing issues
+        num_workers=0,
         pin_memory=False
     )
     
-    # Initialize model
-    print("\nInitializing model...")
-    num_classes = len(full_dataset.classes)
-    model = CropDiseaseClassifier(num_classes=num_classes)
+    # Initialize model with transfer learning
+    print("\nInitializing ResNet18 model with transfer learning...")
+    num_classes = len(train_dataset.classes)
+    
+    # Load pre-trained ResNet18
+    model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+    
+    # Freeze early layers (only train last few layers)
+    for param in model.parameters():
+        param.requires_grad = False
+    
+    # Replace final layer for our number of classes
+    num_ftrs = model.fc.in_features
+    model.fc = nn.Sequential(
+        nn.Dropout(0.5),
+        nn.Linear(num_ftrs, num_classes)
+    )
+    
     model = model.to(device)
     
-    print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+    # Count trainable parameters
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Trainable parameters: {trainable_params:,} / {total_params:,}")
     
     # Loss function and optimizer
     criterion = nn.CrossEntropyLoss()
-    # Using Adam optimizer for faster convergence
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
-    # Aggressive learning rate scheduling
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.1)
+    # Only optimize the classifier parameters
+    optimizer = optim.Adam(model.fc.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
+    # Learning rate scheduling
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     
     # Training history
     history = {
@@ -295,7 +285,7 @@ def train_model():
         # Validate
         val_loss, val_acc = validate(model, val_loader, criterion, device)
         
-        # Update learning rate (after epoch for CosineAnnealing)
+        # Update learning rate
         scheduler.step()
         
         # Save history
@@ -314,48 +304,37 @@ def train_model():
         # Save best model
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            torch.save(model.state_dict(), best_model_path)
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'val_acc': val_acc,
+                'val_loss': val_loss,
+                'classes': train_dataset.classes,
+                'num_classes': num_classes,
+                'config': config
+            }, best_model_path)
             print(f"  ✓ New best model saved! (Val Acc: {val_acc:.4f})")
     
-    total_time = time.time() - start_time
+    training_time = time.time() - start_time
     
     print("\n" + "=" * 60)
     print("Training completed!")
     print("=" * 60)
-    print(f"Total training time: {total_time/60:.1f} minutes")
+    print(f"Total training time: {training_time/60:.1f} minutes")
     print(f"Best validation accuracy: {best_val_acc:.4f}")
-    
-    # Save final model
-    final_model_path = base_dir / config['model']['model_path']
-    torch.save(model.state_dict(), final_model_path)
-    print(f"\nFinal model saved to: {final_model_path}")
     print(f"Best model saved to: {best_model_path}")
     
-    # Update class names in config
-    class_names_path = base_dir / 'config' / 'class_names.json'
-    class_names_data = {'classes': full_dataset.classes}
-    with open(class_names_path, 'w') as f:
-        json.dump(class_names_data, f, indent=2)
-    print(f"Class names updated in: {class_names_path}")
-    
-    # Update model config with actual number of classes
-    config['model']['num_classes'] = num_classes
-    with open(config_path, 'w') as f:
-        json.dump(config, f, indent=2)
-    print(f"Model config updated with {num_classes} classes")
-    
-    # Plot training history
-    plot_path = base_dir / 'models' / 'training_history.png'
-    plot_training_history(history, plot_path)
+    # Save training history plot
+    plot_path = base_dir / 'models' / f'training_history_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
+    save_training_plot(history, plot_path)
     
     # Save training history as JSON
-    history_path = base_dir / 'models' / 'training_history.json'
+    history_path = base_dir / 'models' / f'training_history_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
     with open(history_path, 'w') as f:
         json.dump(history, f, indent=2)
     print(f"Training history saved to: {history_path}")
-    
-    print("\n✓ Training complete! You can now use the trained model for inference.")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     train_model()

@@ -47,11 +47,13 @@ class CropDiseaseClassifier(nn.Module):
         self.pool3 = nn.MaxPool2d(2, 2)
         self.dropout3 = nn.Dropout(0.25)
         
+        # Global Average Pooling
+        self.gap = nn.AdaptiveAvgPool2d((1, 1))
+        
         # Fully Connected Layers
-        # After 3 pooling layers: 224 -> 112 -> 56 -> 28
-        self.fc1 = nn.Linear(128 * 28 * 28, 512)
+        self.fc1 = nn.Linear(128, 64)
         self.dropout4 = nn.Dropout(0.5)
-        self.fc2 = nn.Linear(512, num_classes) # output layer
+        self.fc2 = nn.Linear(64, num_classes) # output layer
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -81,7 +83,8 @@ class CropDiseaseClassifier(nn.Module):
         x = self.pool3(x)
         x = self.dropout3(x)
         
-        # Flatten
+        # Global Average Pooling
+        x = self.gap(x)
         x = x.view(x.size(0), -1)
         
         # Fully Connected Layers
