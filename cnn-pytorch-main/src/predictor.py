@@ -61,7 +61,8 @@ class Predictor:
         DIP: Creates and injects dependencies based on interfaces.
         SRP: Each component has a single responsibility.
         """
-        self.base_dir = Path(__file__).parent
+        # Get the project root directory (parent of src)
+        self.base_dir = Path(__file__).parent.parent
         model_full_path = str(self.base_dir / model_path)
         config_full_path = str(self.base_dir / config_path)
         

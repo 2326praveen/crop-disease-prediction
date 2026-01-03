@@ -19,6 +19,7 @@ import time
 
 from src.auth import Auth
 from src.predictor import Predictor
+from bot_run import render_support_bot
 
 
 # =============================================================================
@@ -115,7 +116,7 @@ class NavigationComponent:
             
             page = st.radio(
                 "Go to",
-                ["Home", "Upload & Predict", "About"],
+                ["Home", "Upload & Predict", "Support Bot", "About"],
                 label_visibility="collapsed"
             )
             
@@ -168,6 +169,7 @@ class HomePageComponent:
         - **🤖 AI-Powered Prediction**: Get instant disease predictions
         - **📊 Detailed Results**: View confidence scores and disease information
         - **💡 Treatment Advice**: Get recommendations for disease management
+        - **🤖 Support Bot**: 24/7 AI assistant to answer your questions
         """)
     
     def _render_diseases(self):
@@ -342,6 +344,20 @@ class PredictionPageComponent:
                 st.warning("⚠️ Low confidence prediction. Consider uploading a clearer image or consulting an expert.")
 
 
+class SupportBotPageComponent:
+    """
+    Support Bot page component.
+    
+    SOLID Principles:
+    - SRP: Only responsible for rendering support bot page
+    - OCP: Can extend with new features without modifying existing code
+    """
+    
+    def render(self):
+        """Render support bot page."""
+        render_support_bot()
+
+
 class AboutPageComponent:
     """
     About page component.
@@ -496,6 +512,10 @@ class Application:
             
             prediction_page = PredictionPageComponent(self.predictor)
             prediction_page.render()
+        
+        elif page == "Support Bot":
+            support_bot_page = SupportBotPageComponent()
+            support_bot_page.render()
         
         elif page == "About":
             about_page = AboutPageComponent()
