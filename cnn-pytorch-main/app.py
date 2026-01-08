@@ -16,10 +16,22 @@ This application provides:
 import streamlit as st
 from pathlib import Path
 import time
+from datetime import datetime
+import io
 
 from src.auth import Auth
 from src.predictor import Predictor
 from bot_run import render_support_bot
+
+try:
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, Table, TableStyle
+    from reportlab.lib import colors
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
 
 
 # =============================================================================
@@ -78,6 +90,231 @@ def apply_custom_css():
         }
         </style>
         """, unsafe_allow_html=True)
+
+
+def get_disease_information(disease_name):
+    """Get detailed disease information."""
+    disease_data = {
+        'Bacterialblight': {
+            'description': 'Bacterial blight is a serious disease affecting rice crops caused by Xanthomonas oryzae bacteria.',
+            'symptoms': 'Water-soaked lesions on leaves, wilting, yellowing, and eventual drying of leaves.',
+            'treatment': 'Use resistant rice varieties, apply copper-based bactericides (Copper oxychloride), avoid excessive nitrogen fertilization, maintain proper water management, and remove infected plant debris.'
+        },
+        'Blast': {
+            'description': 'Rice blast is caused by the fungal pathogen Magnaporthe oryzae and is one of the most destructive rice diseases worldwide.',
+            'symptoms': 'Diamond-shaped lesions with gray or white centers and brown or reddish-brown margins on leaves, nodes, and panicles. Severe cases cause neck rot and empty grains.',
+            'treatment': 'Apply fungicides such as Tricyclazole, Isoprothiolane, or Carbendazim. Use blast-resistant varieties, split nitrogen application, maintain proper plant spacing, and ensure good drainage.'
+        },
+        'Brownspot': {
+            'description': 'Brown spot is a fungal disease caused by Bipolaris oryzae (Helminthosporium oryzae) that affects rice plants.',
+            'symptoms': 'Circular to oval brown spots on leaves with gray or tan centers and brown margins. Spots may also appear on leaf sheaths and grains.',
+            'treatment': 'Apply fungicides like Mancozeb, Propiconazole, or Carbendazim. Treat seeds with fungicide before planting, improve soil fertility (especially potassium), and remove infected plant debris.'
+        }
+    }
+    return disease_data.get(disease_name, {
+        'description': 'Disease information not available.',
+        'symptoms': 'Please consult an agricultural expert for detailed symptoms.',
+        'treatment': 'Please consult an agricultural expert for proper treatment recommendations.'
+    })
+
+
+def generate_pdf_report(results_data, username):
+    """
+    Generate a PDF report for prediction results.
+    
+    Args:
+        results_data: List of dicts containing file info and prediction results
+        username: Username of the current user
+    
+    Returns:
+        BytesIO: PDF file in memory
+    """
+    if not PDF_AVAILABLE:
+        return None
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    story = []
+    styles = getSampleStyleSheet()
+    
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#1f4788'),
+        spaceAfter=30,
+        alignment=1  # Center
+    )
+    
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=colors.HexColor('#2c5aa0'),
+        spaceAfter=12,
+        spaceBefore=12
+    )
+    
+    # Title
+    story.append(Paragraph("🌾 Crop Disease Prediction Report", title_style))
+    story.append(Spacer(1, 0.2 * inch))
+    
+    # Report info
+    report_info = [
+        ["Generated:", datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+        ["User:", username],
+        ["Total Images Analyzed:", str(len(results_data))]
+    ]
+    
+    info_table = Table(report_info, colWidths=[2*inch, 4*inch])
+    info_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#555555')),
+        ('TEXTCOLOR', (1, 0), (1, -1), colors.black),
+        ('FONTNAME', (1, 0), (1, -1), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(info_table)
+    story.append(Spacer(1, 0.3 * inch))
+    
+    # Results for each image
+    for idx, item in enumerate(results_data, 1):
+        result = item['result']
+        filename = item.get('filename', f'Image {idx}')
+        
+        # Section header
+        story.append(Paragraph(f"Result #{idx}: {filename}", heading_style))
+        
+        # Prediction details
+        predicted_class = result['predicted_class']
+        confidence = result['confidence']
+        
+        prediction_data = [
+            ["Predicted Disease:", predicted_class],
+            ["Confidence:", f"{confidence:.2f}%"],
+            ["Status:", "High Confidence" if confidence > 50 else "Low Confidence - Verify Needed"]
+        ]
+        
+        pred_table = Table(prediction_data, colWidths=[2*inch, 4*inch])
+        pred_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#555555')),
+            ('FONTNAME', (1, 0), (1, -1), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f5f5f5')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ]))
+        story.append(pred_table)
+        story.append(Spacer(1, 0.15 * inch))
+        
+        # All probabilities
+        story.append(Paragraph("<b>Class Probabilities:</b>", styles['Normal']))
+        story.append(Spacer(1, 0.05 * inch))
+        
+        prob_data = [["Class", "Probability"]]
+        for class_name, prob in result['all_probabilities'].items():
+            prob_data.append([class_name, f"{prob:.2f}%"])
+        
+        prob_table = Table(prob_data, colWidths=[3*inch, 2*inch])
+        prob_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4a90e2')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')]),
+        ]))
+        story.append(prob_table)
+        story.append(Spacer(1, 0.3 * inch))
+        
+        # Disease Information Section with better structure
+        disease_info = get_disease_information(predicted_class)
+        
+        # Disease Info Box
+        info_heading_style = ParagraphStyle(
+            'InfoHeading',
+            parent=styles['Heading3'],
+            fontSize=14,
+            textColor=colors.white,
+            spaceAfter=0,
+            spaceBefore=0,
+            alignment=0
+        )
+        
+        section_heading_style = ParagraphStyle(
+            'SectionHeading',
+            parent=styles['Normal'],
+            fontSize=11,
+            textColor=colors.HexColor('#1f4788'),
+            fontName='Helvetica-Bold',
+            spaceAfter=6,
+            spaceBefore=10
+        )
+        
+        body_style = ParagraphStyle(
+            'BodyText',
+            parent=styles['Normal'],
+            fontSize=10,
+            leading=14,
+            leftIndent=15,
+            rightIndent=10,
+            spaceAfter=8
+        )
+        
+        # Main heading with background
+        heading_data = [[Paragraph("Disease Information & Treatment Recommendations", info_heading_style)]]
+        heading_table = Table(heading_data, colWidths=[6.5*inch])
+        heading_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#2c5aa0')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            ('LEFTPADDING', (0, 0), (-1, -1), 15),
+        ]))
+        story.append(heading_table)
+        
+        # Create a bordered box for disease information
+        info_data = [
+            [Paragraph("📋 Description:", section_heading_style)],
+            [Paragraph(disease_info['description'], body_style)],
+            [Paragraph("🔍 Symptoms:", section_heading_style)],
+            [Paragraph(disease_info['symptoms'], body_style)],
+            [Paragraph("💊 Treatment & Remedy:", section_heading_style)],
+            [Paragraph(disease_info['treatment'], body_style)]
+        ]
+        
+        info_table = Table(info_data, colWidths=[6.5*inch])
+        info_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8f9fa')),
+            ('BOX', (0, 0), (-1, -1), 1.5, colors.HexColor('#2c5aa0')),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('LEFTPADDING', (0, 0), (-1, -1), 15),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 15),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ]))
+        story.append(info_table)
+        story.append(Spacer(1, 0.2 * inch))
+        
+        # Add page break between results (except for last one)
+        if idx < len(results_data):
+            story.append(Spacer(1, 0.3 * inch))
+    
+    # Footer
+    story.append(Spacer(1, 0.5 * inch))
+    footer_text = """<i>Note: This report is generated by an AI-powered system. 
+    Please consult agricultural experts for professional diagnosis and treatment.</i>"""
+    story.append(Paragraph(footer_text, styles['Italic']))
+    
+    # Build PDF
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
 
 
 # =============================================================================
@@ -293,6 +530,44 @@ class PredictionPageComponent:
         
         if results:
             st.success("✅ Analysis complete!")
+            
+            # Store results in session state for PDF generation
+            st.session_state['latest_results'] = [
+                {
+                    'filename': item['file'].name,
+                    'result': item['result']
+                }
+                for item in results
+            ]
+            
+            # PDF Download Button
+            if PDF_AVAILABLE:
+                try:
+                    username = "User"
+                    # Try to get actual username from session state
+                    if 'username' in st.session_state:
+                        username = st.session_state['username']
+                    
+                    pdf_buffer = generate_pdf_report(st.session_state['latest_results'], username)
+                    if pdf_buffer:
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        col1, col2, col3 = st.columns([1, 1, 1])
+                        with col2:
+                            st.download_button(
+                                label="📥 Download PDF Report",
+                                data=pdf_buffer,
+                                file_name=f"crop_disease_report_{timestamp}.pdf",
+                                mime="application/pdf",
+                                type="primary",
+                                use_container_width=True
+                            )
+                except Exception as e:
+                    st.error(f"Error generating PDF: {str(e)}")
+            else:
+                st.info("📦 Install 'reportlab' package to enable PDF downloads: pip install reportlab")
+            
+            st.markdown("---")
+            
             for item in results:
                 self._display_result(item['file'], item['result'])
     
