@@ -3,10 +3,11 @@ Chatbot Integration for Crop Disease Prediction System.
 
 This module provides a support bot interface with built-in knowledge base
 to assist users with questions about disease identification, treatment,
-and using the application.
+and using the application. Enhanced with comprehensive curing mechanisms.
 """
 
 import streamlit as st
+from src.disease_remedies import DiseaseRemedyService
 
 
 # Knowledge Base for Crop Diseases
@@ -362,14 +363,98 @@ This is an AI-powered application that helps farmers and agricultural profession
 }
 
 
+def get_detailed_cure_response(disease_name):
+    """Get detailed cure response for a specific disease."""
+    remedy_service = DiseaseRemedyService()
+    remedy = remedy_service.get_remedy(disease_name)
+    
+    if not remedy:
+        return None
+    
+    response = f"""**🏥 Complete Cure Guide for {remedy.disease_name}**
+
+⚠️ **SEVERITY**: {remedy.severity_level}
+⏱️ **Recovery Time**: {remedy.time_to_cure}
+🔬 **Cause**: {remedy.cause}
+
+---
+
+🚨 **IMMEDIATE ACTIONS - Do This Now!**
+"""
+    
+    for idx, action in enumerate(remedy.immediate_actions, 1):
+        response += f"\n{idx}. {action}"
+    
+    response += "\n\n---\n\n💊 **CHEMICAL TREATMENT STEPS**\n"
+    for step in remedy.chemical_treatment:
+        response += f"\n{step.icon} **{step.title}**\n   {step.description}\n"
+    
+    response += "\n---\n\n🌿 **ORGANIC TREATMENT OPTIONS**\n"
+    for step in remedy.organic_treatment:
+        response += f"\n{step.icon} **{step.title}**\n   {step.description}\n"
+    
+    response += "\n---\n\n✅ **DO's**\n"
+    for do_item in remedy.dos[:5]:  # Show first 5
+        response += f"\n{do_item}"
+    
+    response += "\n\n❌ **DON'Ts**\n"
+    for dont_item in remedy.donts[:5]:  # Show first 5
+        response += f"\n{dont_item}"
+    
+    if remedy.emergency_contact:
+        response += f"\n\n📞 **Emergency**: {remedy.emergency_contact}"
+    
+    response += "\n\n💡 **Tip**: Upload an image for prediction to see complete step-by-step treatment instructions!"
+    
+    return response
+
+
 def find_best_response(user_input):
     """Find the best matching response from knowledge base."""
     user_input_lower = user_input.lower()
     
+    # Check for specific cure/treatment requests
+    cure_keywords = ["cure", "treat", "remedy", "fix", "heal", "how to cure", "treatment for"]
+    disease_map = {
+        "bacterial blight": "Bacterialblight",
+        "bacterialblight": "Bacterialblight",
+        "blight": "Bacterialblight",
+        "blast": "Blast",
+        "brown spot": "Brownspot",
+        "brownspot": "Brownspot"
+    }
+    
+    if any(kw in user_input_lower for kw in cure_keywords):
+        for disease_key, disease_name in disease_map.items():
+            if disease_key in user_input_lower:
+                cure_response = get_detailed_cure_response(disease_name)
+                if cure_response:
+                    return cure_response
+        
+        # If cure keyword found but no specific disease
+        return """**🏥 Treatment & Cure Information**
+
+I can provide detailed treatment plans for:
+
+🌾 **Rice Diseases**:
+- **Bacterial Blight** - Ask: "How to cure bacterial blight?"
+- **Blast** - Ask: "Treatment for blast disease"
+- **Brown Spot** - Ask: "How to treat brown spot?"
+
+Just specify which disease you need treatment for, and I'll provide:
+✅ Immediate actions
+✅ Chemical treatment steps
+✅ Organic alternatives
+✅ Prevention measures
+✅ Do's and Don'ts
+
+**Example**: "How to cure blast disease?"
+"""
+    
     # Check for greetings
     greetings = ["hi", "hello", "hey", "good morning", "good afternoon", "good evening", "hii", "hiii"]
     if any(greet in user_input_lower for greet in greetings):
-        return "Hello! 👋 I'm your Crop Disease Support Assistant. How can I help you today? You can ask me about:\n- Rice diseases (Bacterial Blight, Blast, Brown Spot, Tungro)\n- Black Gram diseases\n- Lentil diseases\n- How to use this application\n- Treatment recommendations"
+        return "Hello! 👋 I'm your Crop Disease Support Assistant. How can I help you today? You can ask me about:\n- Rice diseases (Bacterial Blight, Blast, Brown Spot, Tungro)\n- **Complete cure guides** - Ask: 'How to cure bacterial blight?'\n- Treatment recommendations\n- How to use this application\n- Image upload tips"
     
     # Check for thanks
     thanks = ["thank", "thanks", "thx", "appreciate"]
@@ -503,28 +588,70 @@ Just type your question!"""
 
 def render_support_bot():
     """
-    Render the support bot interface with built-in knowledge base.
+    Render the support bot interface with built-in knowledge base and cure mechanisms.
     """
-    st.title("🤖 Support Bot")
+    st.title("🤖 Support Bot - AI Health Assistant")
     
     st.markdown("""
-    ### Welcome to the Crop Disease Support Agent
+    ### Welcome to the Crop Disease Support & Cure Agent
     
-    Ask me anything about:
+    I can help you with comprehensive cure information! Ask me about:
+    - 🏥 **Complete cure guides** - Ask: "How to cure bacterial blight?"
+    - 💊 **Step-by-step treatment plans** for all diseases
     - 🌾 **Rice diseases**: Bacterial Blight, Blast, Brown Spot, Tungro
-    - 🫘 **Black Gram diseases**: Anthracnose, Yellow Mosaic, Powdery Mildew
-    - 🌿 **Lentil diseases**: Ascochyta Blight, Rust, Powdery Mildew
+    - 🧪 **Chemical & organic treatments**
+    - 🛡️ **Prevention strategies**
     - 🔍 How to use the prediction system
-    - 💊 Treatment recommendations
     - 📸 Tips for capturing good leaf images
+    
+    **Example questions**:
+    - "How to cure blast disease?"
+    - "What is the treatment for bacterial blight?"
+    - "How do I treat brown spot organically?"
     """)
+    
+    st.markdown("---")
+    
+    # Quick Action Buttons
+    st.markdown("### 🎯 Quick Cure Guides")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🦠 Cure Bacterial Blight", use_container_width=True):
+            cure_response = get_detailed_cure_response("Bacterialblight")
+            if cure_response:
+                if "messages" not in st.session_state:
+                    st.session_state.messages = []
+                st.session_state.messages.append({"role": "user", "content": "How to cure bacterial blight?"})
+                st.session_state.messages.append({"role": "assistant", "content": cure_response})
+                st.rerun()
+    
+    with col2:
+        if st.button("🍃 Cure Blast Disease", use_container_width=True):
+            cure_response = get_detailed_cure_response("Blast")
+            if cure_response:
+                if "messages" not in st.session_state:
+                    st.session_state.messages = []
+                st.session_state.messages.append({"role": "user", "content": "How to cure blast?"})
+                st.session_state.messages.append({"role": "assistant", "content": cure_response})
+                st.rerun()
+    
+    with col3:
+        if st.button("🟤 Cure Brown Spot", use_container_width=True):
+            cure_response = get_detailed_cure_response("Brownspot")
+            if cure_response:
+                if "messages" not in st.session_state:
+                    st.session_state.messages = []
+                st.session_state.messages.append({"role": "user", "content": "How to cure brown spot?"})
+                st.session_state.messages.append({"role": "assistant", "content": cure_response})
+                st.rerun()
     
     st.markdown("---")
     
     # Initialize chat history
     if "messages" not in st.session_state:
         st.session_state.messages = [
-            {"role": "assistant", "content": "Hello! 👋 I'm your Crop Disease Support Assistant. How can I help you today?"}
+            {"role": "assistant", "content": "Hello! 👋 I'm your Crop Disease Support & Cure Assistant. Ask me for complete cure guides - try: 'How to cure bacterial blight?'"}
         ]
     
     # Display chat history
@@ -533,7 +660,7 @@ def render_support_bot():
             st.markdown(message["content"])
     
     # Chat input
-    if prompt := st.chat_input("Type your question here..."):
+    if prompt := st.chat_input("Ask me how to cure any disease..."):
         # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):

@@ -21,6 +21,7 @@ import io
 
 from src.auth import Auth
 from src.predictor import Predictor
+from src.disease_remedies import DiseaseRemedyService, RemedyStep
 from bot_run import render_support_bot
 
 try:
@@ -573,7 +574,7 @@ class PredictionPageComponent:
     
     def _display_result(self, uploaded_file, result):
         """
-        Display individual prediction result.
+        Display individual prediction result with comprehensive cure information.
         
         SRP: Only responsible for rendering results.
         """
@@ -603,8 +604,114 @@ class PredictionPageComponent:
                 for class_name, prob in result['all_probabilities'].items():
                     st.write(f"**{class_name}:** {prob:.2f}%")
                     st.progress(prob / 100)
+        
+        # Warning if low confidence
+        if confidence < 50:
+            st.warning("⚠️ Low confidence prediction. Consider uploading a clearer image or consulting an expert.")
+        
+        # Comprehensive Disease & Remedy Information Section
+        st.markdown("---")
+        st.markdown("## 🏥 Complete Disease Treatment & Cure Guide")
+        
+        # Get remedy information
+        remedy_service = DiseaseRemedyService()
+        remedy = remedy_service.get_remedy(predicted_class)
+        
+        if remedy:
+            # Severity Alert
+            st.markdown(
+                f"""
+                <div style='background-color: #fff3cd; padding: 15px; border-radius: 8px; border-left: 5px solid #ffc107; margin: 10px 0;'>
+                    <h3 style='color: #856404; margin-top: 0;'>⚠️ Disease Severity</h3>
+                    <p style='margin: 5px 0;'><strong>Level:</strong> {remedy.severity_level}</p>
+                    <p style='margin: 5px 0;'><strong>Expected Recovery Time:</strong> {remedy.time_to_cure}</p>
+                    <p style='margin: 5px 0;'><strong>Cause:</strong> {remedy.cause}</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
             
-            # Disease information
+            # Immediate Actions
+            st.markdown("### 🚨 IMMEDIATE ACTIONS - DO THIS NOW!")
+            st.markdown(
+                """
+                <div style='background-color: #f8d7da; padding: 15px; border-radius: 8px; border-left: 5px solid #dc3545;'>
+                """,
+                unsafe_allow_html=True
+            )
+            for action in remedy.immediate_actions:
+                st.markdown(f"- {action}")
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+            # Treatment Options Tabs
+            tab1, tab2, tab3 = st.tabs(["💊 Chemical Treatment", "🌿 Organic Treatment", "🛡️ Prevention"])
+            
+            with tab1:
+                st.markdown("### Chemical Treatment Steps")
+                st.info("Follow these steps in order for best results. Always read product labels and follow safety instructions.")
+                
+                for step in remedy.chemical_treatment:
+                    with st.expander(f"{step.icon} Step {step.step_number}: {step.title}", expanded=True):
+                        st.markdown(f"**Instructions:** {step.description}")
+                        st.success("✓ Check off when completed")
+            
+            with tab2:
+                st.markdown("### Organic & Natural Treatment Options")
+                st.info("Eco-friendly alternatives that are safer for the environment. May take longer but have no chemical residue.")
+                
+                for step in remedy.organic_treatment:
+                    with st.expander(f"{step.icon} Step {step.step_number}: {step.title}", expanded=True):
+                        st.markdown(f"**Instructions:** {step.description}")
+                        st.success("✓ Check off when completed")
+            
+            with tab3:
+                st.markdown("### Preventive Measures")
+                st.info("Apply these measures to prevent future outbreaks and maintain healthy crops.")
+                
+                for measure in remedy.preventive_measures:
+                    st.markdown(f"- {measure}")
+            
+            # Do's and Don'ts
+            st.markdown("### ✅ Do's and ❌ Don'ts")
+            col_do, col_dont = st.columns(2)
+            
+            with col_do:
+                st.markdown(
+                    """
+                    <div style='background-color: #d4edda; padding: 15px; border-radius: 8px; border-left: 5px solid #28a745;'>
+                        <h4 style='color: #155724; margin-top: 0;'>✅ DO THESE</h4>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                for do_item in remedy.dos:
+                    st.markdown(f"{do_item}")
+            
+            with col_dont:
+                st.markdown(
+                    """
+                    <div style='background-color: #f8d7da; padding: 15px; border-radius: 8px; border-left: 5px solid #dc3545;'>
+                        <h4 style='color: #721c24; margin-top: 0;'>❌ DON'T DO THESE</h4>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                for dont_item in remedy.donts:
+                    st.markdown(f"{dont_item}")
+            
+            # Emergency Contact
+            if remedy.emergency_contact:
+                st.markdown(
+                    f"""
+                    <div style='background-color: #d1ecf1; padding: 15px; border-radius: 8px; border-left: 5px solid #0c5460; margin: 15px 0;'>
+                        <h4 style='color: #0c5460; margin-top: 0;'>📞 Emergency Contact</h4>
+                        <p>{remedy.emergency_contact}</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+        else:
+            # Fallback to basic disease info if remedy not available
             disease_info = self.predictor.get_disease_info(predicted_class)
             
             st.markdown("### 📖 Disease Information")
@@ -613,10 +720,6 @@ class PredictionPageComponent:
             
             st.markdown("### 💊 Treatment Recommendations")
             st.markdown(disease_info['treatment'])
-            
-            # Warning if low confidence
-            if confidence < 50:
-                st.warning("⚠️ Low confidence prediction. Consider uploading a clearer image or consulting an expert.")
 
 
 class SupportBotPageComponent:
