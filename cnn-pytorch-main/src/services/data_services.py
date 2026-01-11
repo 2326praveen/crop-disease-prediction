@@ -48,6 +48,10 @@ class SQLiteConnection(IDatabaseConnection):
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.connection = None
+        # Ensure directory exists
+        db_dir = Path(db_path).parent
+        if not db_dir.exists():
+            db_dir.mkdir(parents=True, exist_ok=True)
     
     def connect(self):
         """Establish connection to SQLite database."""
